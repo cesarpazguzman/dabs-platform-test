@@ -1,9 +1,10 @@
 name: deploy-{{.use_case}}
 on:
   pull_request:
+    branches: [qa, main]
     paths: ["{{.use_case}}/**"]
   push:
-    branches: [main]
+    branches: [qa, main]   # qa -> qa target, main -> prd target
     paths: ["{{.use_case}}/**"]
 jobs:
   ci:

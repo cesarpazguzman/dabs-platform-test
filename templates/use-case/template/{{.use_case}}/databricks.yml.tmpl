@@ -23,7 +23,7 @@ targets:
     workspace:
       host: {{workspace_host}}
 
-  # Deployed only by CI, after a merge to main
+  # Deployed only by CI, after a merge to the qa branch
   qa:
     mode: production
     workspace:
@@ -37,7 +37,7 @@ targets:
         lookup:
           service_principal: {{.qa_sp}}
 
-  # Deployed only by CI, after qa and a manual approval
+  # Deployed only by CI, after a merge to main (from qa or hotfix/*) and a manual approval
   prd:
     mode: production
     workspace:
