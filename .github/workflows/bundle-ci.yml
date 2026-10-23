@@ -35,7 +35,7 @@ jobs:
             python3 -m venv .venv && .venv/bin/pip install -r requirements-bundle.txt
           fi
       - name: Validate
-        run: databricks bundle validate -t qa
+        run: databricks bundle validate --strict -t qa     # warnings (e.g. unknown fields) fail the build
       - name: Platform rules
         run: |
           databricks bundle validate -t qa --output json \
