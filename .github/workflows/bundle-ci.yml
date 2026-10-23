@@ -47,6 +47,9 @@ jobs:
     needs: plan
     if: github.ref == 'refs/heads/main'          # only on merge
     environment: qa                              # no approval; restricted to main
+    concurrency:                                 # one deploy at a time; a newer run replaces a queued one
+      group: qa-${{ github.repository }}-${{ inputs.bundle_path }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     env:
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -70,6 +73,9 @@ jobs:
     needs: deploy-qa
     if: github.ref == 'refs/heads/main'
     environment: prd                             # waits for a reviewer to approve
+    concurrency:                                 # a newer run cancels an older one still waiting for approval
+      group: prd-${{ github.repository }}-${{ inputs.bundle_path }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     env:                                         # prd environment secrets: prd service principal
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -80,6 +86,15 @@ jobs:
         working-directory: ${{ inputs.bundle_path }}
     steps:
       - uses: actions/checkout@v4                 # same commit that was deployed to qa
+        with:
+          fetch-depth: 0                          # full history, to compare with main
+      - name: Refuse stale deployments
+        run: |
+          latest=$(git log -1 --format=%H origin/main -- .)
+          if [ "$latest" != "$GITHUB_SHA" ]; then
+            echo "::error::$GITHUB_SHA is not the latest change to ${{ inputs.bundle_path }} on main ($latest). Approve the newest run instead."
+            exit 1
+          fi
       - uses: databricks/setup-cli@main
       - name: Bundle Python environment (if needed)
         run: |
