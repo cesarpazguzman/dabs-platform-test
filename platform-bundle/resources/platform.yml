@@ -4,8 +4,10 @@ resources:
     landing:       { catalog_name: "${var.catalog}", name: landing }
     sales_dev:     { catalog_name: "${var.catalog}", name: sales_dev }
     sales_qa:      { catalog_name: "${var.catalog}", name: sales_qa }
+    sales_prd:     { catalog_name: "${var.catalog}", name: sales_prd }
     ingestion_dev: { catalog_name: "${var.catalog}", name: ingestion_dev }
     ingestion_qa:  { catalog_name: "${var.catalog}", name: ingestion_qa }
+    ingestion_prd: { catalog_name: "${var.catalog}", name: ingestion_prd }
 
   volumes:
     landing_files:
