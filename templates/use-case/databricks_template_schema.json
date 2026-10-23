@@ -1,0 +1,14 @@
+{
+  "welcome_message": "Corporate use-case template",
+  "properties": {
+    "use_case":   { "type": "string", "order": 1,
+                    "description": "Use-case name (lowercase, no spaces)",
+                    "pattern": "^[a-z][a-z0-9_]+$",
+                    "pattern_match_failure_message": "Only lowercase letters, digits and _" },
+    "github_org": { "type": "string", "order": 2, "default": "cesarpazguzman",
+                    "description": "GitHub organization (or user)" },
+    "catalog":    { "type": "string", "order": 3, "default": "demo_dabs",
+                    "description": "Catalog" }
+  },
+  "success_message": "\nUse case '{{.use_case}}' created in folder {{.use_case}}/"
+}

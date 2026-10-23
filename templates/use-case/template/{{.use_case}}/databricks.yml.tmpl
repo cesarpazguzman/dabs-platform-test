@@ -1,0 +1,24 @@
+bundle:
+  name: {{.use_case}}
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Catalog (created by the platform)
+    default: {{.catalog}}
+  schema:
+    description: Environment schema (created by the platform)
+    default: {{.use_case}}_dev
+
+targets:
+  dev:
+    default: true
+    workspace:
+      host: {{workspace_host}}
+  qa:
+    workspace:
+      host: {{workspace_host}}       # same workspace in this demo
+    variables:
+      schema: {{.use_case}}_qa

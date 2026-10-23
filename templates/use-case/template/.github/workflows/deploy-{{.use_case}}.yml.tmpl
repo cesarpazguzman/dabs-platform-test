@@ -1,0 +1,13 @@
+name: deploy-{{.use_case}}
+on:
+  pull_request:
+    paths: ["{{.use_case}}/**"]
+  push:
+    branches: [main]
+    paths: ["{{.use_case}}/**"]
+jobs:
+  ci:
+    uses: {{.github_org}}/dabs-platform-test/.github/workflows/bundle-ci.yml@v1
+    with:
+      bundle_path: {{.use_case}}
+    secrets: inherit

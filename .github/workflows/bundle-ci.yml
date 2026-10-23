@@ -1,0 +1,60 @@
+name: bundle-ci
+
+on:
+  workflow_call:
+    inputs:
+      bundle_path:            # bundle folder inside the calling repository
+        type: string
+        required: true
+
+env:                          # credentials: secrets of the calling repository
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+  DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+  DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.bundle_path }}
+    steps:
+      - uses: actions/checkout@v4                 # use-case code
+      - uses: actions/checkout@v4                 # platform rules
+        with:
+          repository: cesarpazguzman/dabs-platform-test
+          ref: v1
+          path: _platform
+      - uses: databricks/setup-cli@main
+      - name: Bundle Python environment (if needed)
+        run: |
+          if [ -f requirements-bundle.txt ]; then
+            python3 -m venv .venv && .venv/bin/pip install -r requirements-bundle.txt
+          fi
+      - name: Validate
+        run: databricks bundle validate -t qa
+      - name: Platform rules
+        run: |
+          databricks bundle validate -t qa --output json \
+            | python3 $GITHUB_WORKSPACE/_platform/ci/check_rules.py
+      - name: Plan
+        run: databricks bundle plan -t qa
+
+  deploy-qa:
+    needs: plan
+    if: github.ref == 'refs/heads/main'          # only on merge
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.bundle_path }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Bundle Python environment (if needed)
+        run: |
+          if [ -f requirements-bundle.txt ]; then
+            python3 -m venv .venv && .venv/bin/pip install -r requirements-bundle.txt
+          fi
+      - name: Deploy to qa
+        run: databricks bundle deploy -t qa

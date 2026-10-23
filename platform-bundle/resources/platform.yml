@@ -1,0 +1,25 @@
+resources:
+  schemas:
+    metadata:      { catalog_name: "${var.catalog}", name: metadata }
+    landing:       { catalog_name: "${var.catalog}", name: landing }
+    sales_dev:     { catalog_name: "${var.catalog}", name: sales_dev }
+    sales_qa:      { catalog_name: "${var.catalog}", name: sales_qa }
+    ingestion_dev: { catalog_name: "${var.catalog}", name: ingestion_dev }
+    ingestion_qa:  { catalog_name: "${var.catalog}", name: ingestion_qa }
+
+  volumes:
+    landing_files:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.landing.name}
+      name: files
+      volume_type: MANAGED
+
+  jobs:
+    setup_demo:
+      name: platform-setup-demo
+      tasks:
+        - task_key: setup
+          notebook_task:
+            notebook_path: ../src/setup_demo.py
+            base_parameters:
+              catalog: ${var.catalog}

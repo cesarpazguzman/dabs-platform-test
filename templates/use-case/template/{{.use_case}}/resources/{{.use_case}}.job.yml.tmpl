@@ -1,0 +1,14 @@
+resources:
+  jobs:
+    {{.use_case}}_main:
+      name: {{.use_case}}-main-${bundle.target}
+      email_notifications:
+        on_failure:
+          - {{user_name}}
+      tasks:
+        - task_key: main
+          notebook_task:
+            notebook_path: ../src/main.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}

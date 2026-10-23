@@ -1,0 +1,15 @@
+bundle:
+  name: platform
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    default: demo_dabs
+
+targets:
+  demo:
+    default: true
+    workspace:
+      host: https://dbc-e146da84-2d63.cloud.databricks.com
