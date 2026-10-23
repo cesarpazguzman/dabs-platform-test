@@ -11,14 +11,42 @@ variables:
   schema:
     description: Environment schema (created by the platform)
     default: {{.use_case}}_dev
+  deployer_sp:
+    description: Application ID of the service principal that deploys the target (set in qa and prd only)
+    default: ""
 
 targets:
+  # Personal copy for each developer, deployed from a laptop
   dev:
     default: true
+    mode: development
     workspace:
       host: {{workspace_host}}
+
+  # Deployed only by CI, after a merge to main
   qa:
+    mode: production
     workspace:
       host: {{workspace_host}}       # same workspace in this demo
+      root_path: /Workspace/Users/${var.deployer_sp}/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      service_principal_name: ${var.deployer_sp}
     variables:
       schema: {{.use_case}}_qa
+      deployer_sp:
+        lookup:
+          service_principal: {{.qa_sp}}
+
+  # Deployed only by CI, after qa and a manual approval
+  prd:
+    mode: production
+    workspace:
+      host: {{workspace_host}}       # same workspace in this demo
+      root_path: /Workspace/Users/${var.deployer_sp}/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      service_principal_name: ${var.deployer_sp}
+    variables:
+      schema: {{.use_case}}_prd
+      deployer_sp:
+        lookup:
+          service_principal: {{.prd_sp}}

@@ -1,5 +1,9 @@
 name: bundle-ci
 
+# Identities:
+#   - plan and deploy-qa use the qa service principal (repository secrets, or the qa environment)
+#   - deploy-prd uses the prd service principal (secrets of the prd environment override the repository ones)
+
 on:
   workflow_call:
     inputs:
@@ -7,15 +11,14 @@ on:
         type: string
         required: true
 
-env:                          # credentials: secrets of the calling repository
-  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-  DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
-  DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
-  DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
-
 jobs:
   plan:
     runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
     defaults:
       run:
         working-directory: ${{ inputs.bundle_path }}
@@ -44,7 +47,13 @@ jobs:
   deploy-qa:
     needs: plan
     if: github.ref == 'refs/heads/main'          # only on merge
+    environment: qa                              # no approval; restricted to main
     runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
     defaults:
       run:
         working-directory: ${{ inputs.bundle_path }}
@@ -58,3 +67,27 @@ jobs:
           fi
       - name: Deploy to qa
         run: databricks bundle deploy -t qa
+
+  deploy-prd:
+    needs: deploy-qa
+    if: github.ref == 'refs/heads/main'
+    environment: prd                             # waits for a reviewer to approve
+    runs-on: ubuntu-latest
+    env:                                         # prd environment secrets: prd service principal
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.bundle_path }}
+    steps:
+      - uses: actions/checkout@v4                 # same commit that was deployed to qa
+      - uses: databricks/setup-cli@main
+      - name: Bundle Python environment (if needed)
+        run: |
+          if [ -f requirements-bundle.txt ]; then
+            python3 -m venv .venv && .venv/bin/pip install -r requirements-bundle.txt
+          fi
+      - name: Deploy to prd
+        run: databricks bundle deploy -t prd
