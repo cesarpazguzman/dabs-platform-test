@@ -12,25 +12,29 @@
       "type": "string",
       "order": 2,
       "default": "cesarpazguzman",
-      "description": "GitHub organization (or user)"
+      "description": "GitHub organization (or user)",
+      "skip_prompt_if": {}
     },
     "catalog": {
       "type": "string",
       "order": 3,
       "default": "demo_dabs",
-      "description": "Catalog"
+      "description": "Catalog",
+      "skip_prompt_if": {}
     },
     "qa_sp": {
       "type": "string",
       "order": 4,
       "default": "sp-dabs-qa",
-      "description": "Service principal that deploys qa (display name)"
+      "description": "Service principal that deploys qa (display name)",
+      "skip_prompt_if": {}
     },
     "prd_sp": {
       "type": "string",
       "order": 5,
       "default": "sp-dabs-prd",
-      "description": "Service principal that deploys prd (display name)"
+      "description": "Service principal that deploys prd (display name)",
+      "skip_prompt_if": {}
     }
   },
   "success_message": "\nUse case '{{.use_case}}' created in folder {{.use_case}}/"

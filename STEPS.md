@@ -263,13 +263,29 @@ metadata. Because the script lives here, changing a rule changes it for every re
 `databricks_template_schema.json` and copies `template/`, replacing the `{{.variable}}` placeholders
 (also in file names). Files ending in `.tmpl` are processed; the rest are copied as they are.
 
-| Question | Default | Used for |
+| Parameter | Asked? | Value | Used for |
+| --- | --- | --- | --- |
+| `use_case` | Yes | (lowercase, digits and `_`) | Bundle name, folder name, job name, schema names |
+| `github_org` | No | `cesarpazguzman` | The `uses:` line that calls the reusable workflow |
+| `catalog` | No | `demo_dabs` | Default value of the `catalog` variable |
+| `qa_sp` | No | `sp-dabs-qa` | Service principal that deploys and runs qa |
+| `prd_sp` | No | `sp-dabs-prd` | Service principal that deploys and runs prd |
+
+Only the use-case name is asked. The other parameters are decided by the platform, so they are hidden with
+`"skip_prompt_if": {}` and always take their default value. In particular, the deployment identities are not
+the use-case team's choice. The service principal questions are **not** about who runs `bundle init`: they
+are values written into the `qa` and `prd` targets. `dev` never uses a service principal.
+
+**A template is a starting point, not a link.** `bundle init` runs once per use case; after that, the files
+belong to the use-case team and are never regenerated. Platform changes reach existing use cases like this:
+
+| What the platform changes | Reaches existing use cases automatically? | How |
 | --- | --- | --- |
-| `use_case` | (none; lowercase, digits and `_`) | Bundle name, folder name, job name, schema names |
-| `github_org` | `cesarpazguzman` | The `uses:` line that calls the reusable workflow |
-| `catalog` | `demo_dabs` | Default value of the `catalog` variable |
-| `qa_sp` | `sp-dabs-qa` | Service principal that deploys and runs qa |
-| `prd_sp` | `sp-dabs-prd` | Service principal that deploys and runs prd |
+| CI workflow (`bundle-ci.yml`) | Yes | Use cases call it by `@v1`; moving the tag updates the next run |
+| Rules (`check_rules.py`) | Yes | CI checks them out at `@v1` on every PR |
+| Template (`templates/use-case/`) | No, only new use cases | Existing use cases adapt through a PR; a new rule can make the change mandatory |
+
+So anything that must always apply to every use case belongs in the CI or the rules, not only in the template.
 
 | Generated file | Content |
 | --- | --- |
