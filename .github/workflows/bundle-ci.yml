@@ -102,9 +102,10 @@ jobs:
           fetch-depth: 0                          # full history, to compare with main
       - name: Refuse stale deployments
         run: |
-          latest=$(git log -1 --format=%H origin/main -- .)
-          if [ "$latest" != "$GITHUB_SHA" ]; then
-            echo "::error::$GITHUB_SHA is not the latest change to ${{ inputs.bundle_path }} on main ($latest). Approve the newest run instead."
+          # Compare content, not commit IDs, so it works with merge, squash and rebase
+          if ! git diff --quiet "$GITHUB_SHA" origin/main -- .; then
+            echo "::error::${{ inputs.bundle_path }} has changed on main since $GITHUB_SHA. Approve the newest run instead."
+            git diff --stat "$GITHUB_SHA" origin/main -- .
             exit 1
           fi
       - uses: databricks/setup-cli@main
