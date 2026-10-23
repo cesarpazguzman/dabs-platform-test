@@ -43,6 +43,21 @@ jobs:
                exit 1 ;;
           esac
       - uses: actions/checkout@v5                 # use-case code
+        with:
+          fetch-depth: 0                          # full history, for the back-merge check
+      - name: Back-merge check (main must not have changes that qa lacks)
+        if: github.base_ref == 'main' && github.head_ref == 'qa'
+        working-directory: .
+        run: |
+          git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main +refs/heads/qa:refs/remotes/origin/qa
+          # Changes made on main since qa last contained it, e.g. a hotfix. A promotion merge commit changes no files.
+          base=$(git merge-base origin/main origin/qa)
+          if ! git diff --quiet "$base" origin/main; then
+            echo "::error::main has changes that are not in qa (a hotfix?). Merge main back into qa with a merge commit first."
+            git diff --stat "$base" origin/main
+            exit 1
+          fi
+          echo "qa contains everything on main"
       - uses: actions/checkout@v5                 # platform rules
         with:
           repository: cesarpazguzman/dabs-platform-test
