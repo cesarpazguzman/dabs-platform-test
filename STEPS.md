@@ -905,18 +905,48 @@ gh pr create --fill --base main         # allowed: the branch starts with hotfix
 Then bring the fix back into `qa`. Until this is done, the next promotion PR fails in the back-merge check.
 
 ```bash
-git switch qa && git pull
-git switch -c chore/back-merge-<what>
-git merge origin/main                   # resolve conflicts here, if any
+git fetch origin
+git switch -c chore/back-merge-<what> origin/qa
+git merge --no-edit origin/main         # resolve conflicts here, if any
+git log --oneline --graph -6            # a merge commit with two parents: qa and the hotfix
 git push -u origin chore/back-merge-<what>
-gh pr create --fill --base qa
-gh pr merge --merge --delete-branch     # merge commit, never squash
+gh pr create --base qa --title "Merge main back into qa" --body "Brings the hotfix from main into qa."
+sleep 20; gh pr checks --watch
+gh pr merge --merge --delete-branch     # merge commit, never squash; deploys qa with the fix
+```
+
+Then the promotion PR (`qa` → `main`) re-runs its checks by itself, and the back-merge check prints
+"qa contains everything on main":
+
+```bash
+git switch qa && git pull
+sleep 20; gh pr checks qa --watch
+gh pr merge qa --merge                  # never --delete-branch
+gh api repos/<owner>/<repo>/compare/main...qa --jq '"qa ahead \(.ahead_by), behind \(.behind_by)"'
+# after approving prd: "ahead 0"; "behind" only counts merge commits, which change no files
 ```
 
 - The back-merge goes through a branch taken from `qa`, not a PR straight from `main`: `qa` requires PRs to
   be up to date, and `main` does not contain the latest `qa`.
 - It must be a **merge commit**. A squash copies the changes but does not record that `main` is now part of
-  `qa`, so the back-merge check keeps failing.
+  `qa`, so the back-merge check keeps failing. In the web UI, check that the button says "Create a merge
+  commit": it remembers the last method used, which is usually the squash of a feature.
+- If a back-merge was squashed by mistake (the `qa` commit has a single parent), repeat it with a merge
+  commit. The merge changes no files, it only records the ancestry. Because no file under the bundle folder
+  changes, the CI does not run and `ci / plan` stays "Expected — Waiting for status to be reported", so it is
+  merged with the admin bypass:
+
+  ```bash
+  git fetch origin
+  git switch -c chore/back-merge-<what>-2 origin/qa
+  git merge --no-edit origin/main
+  git log --oneline --graph -4          # a merge commit with two parents
+  git diff origin/qa --stat             # empty: no file changes
+  git push -u origin chore/back-merge-<what>-2
+  gh pr create --base qa --title "Merge main back into qa (record the hotfix ancestry)" \
+    --body "The previous back-merge was squashed, so qa did not record that it contains main. No file changes."
+  gh pr merge --merge --admin --delete-branch
+  ```
 
 ### 8.4 What `plan` shows, and what it does not
 
@@ -942,8 +972,13 @@ What was run end to end, what was found, and what was changed as a result.
 | Two merges into `qa` back to back (admin bypass) | When A's `deploy-qa` started, `qa` already contained B: A skipped with the notice "sales has changed on qa… Skipping", and B deployed both changes | "Skip stale deployments" was added to `deploy-qa` before this test, because `concurrency` does not guarantee order. |
 | Promotion PR `qa` → `main` | Branch policy passed; validate and rules ran against prd with the qa identity; prd deployed after approval | After the merge, `qa` showed as one commit behind `main`, which would have blocked every following promotion. Fixed by dropping "up to date" on `main` and adding the back-merge check (sections 5.3 and 5.11). The check was verified on a clone: OK after a promotion, fails with an un-merged hotfix, OK after a merge-commit back-merge, fails after a squash back-merge. |
 
-Still to rehearse: a PR from a `feature/*` branch into `main` (must fail in the branch policy), a hotfix with
-its back-merge, the governance PRs (a failing rule, a sensitive file, a new platform rule) and adding and
+| PR from `feature/*` into `main` | Failed in Branch policy: "Only qa or hotfix/* branches can be merged into main" | — |
+| `hotfix/*` into `main` while `qa` had an unpromoted feature | Branch policy passed; prd deployed the fix after approval, without the feature | — |
+| Promotion PR right after the hotfix | Failed in the back-merge check, listing `sales/src/main.py` | — |
+| Back-merge merged with **squash** | The promotion PR kept failing in the back-merge check | Expected (squash records no ancestry), but easy to do by mistake from the web UI. Repeated with a merge commit, which changed no files, so the CI did not run and it was merged with the admin bypass (section 8.3). |
+| Promotion PR after the merge-commit back-merge | "qa contains everything on main"; prd deployed the feature after approval | — |
+
+Still to rehearse: the governance PRs (a failing rule, a sensitive file, a new platform rule) and adding and
 removing ingestion datasets.
 
 ## 10. Clean-up
