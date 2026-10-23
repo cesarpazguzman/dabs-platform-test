@@ -93,13 +93,28 @@ jobs:
         working-directory: ${{ inputs.bundle_path }}
     steps:
       - uses: actions/checkout@v5
+      - name: Skip stale deployments
+        id: freshness
+        run: |
+          # A newer run already contains this change: deploying would overwrite qa with an older state
+          git fetch --quiet origin qa
+          echo "This run: $GITHUB_SHA. Current qa: $(git rev-parse FETCH_HEAD)"
+          if git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- .; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::${{ inputs.bundle_path }} has changed on qa since $GITHUB_SHA. Skipping: the newest run deploys it."
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: databricks/setup-cli@main
+        if: steps.freshness.outputs.stale == 'false'
       - name: Bundle Python environment (if needed)
+        if: steps.freshness.outputs.stale == 'false'
         run: |
           if [ -f requirements-bundle.txt ]; then
             python3 -m venv .venv && .venv/bin/pip install -r requirements-bundle.txt
           fi
       - name: Deploy to qa
+        if: steps.freshness.outputs.stale == 'false'
         run: databricks bundle deploy -t qa
 
   deploy-prd:
