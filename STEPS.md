@@ -29,7 +29,7 @@ GitHub: cesarpazguzman
             │                 branch main → target prd (sp-dabs-prd, after approval)
             ▼
 Databricks Free Edition workspace · catalog demo_dabs
-├── metadata.ingestion_datasets     (table that drives the ingestion bundle)
+├── metadata.ingestion_datasets     (table that drove the ingestion bundle; replaced by a file, 7.3)
 ├── landing.files                   (volume with sample CSV files)
 └── <use_case>_dev · <use_case>_qa · <use_case>_prd   (one schema per use case and environment)
 ```
@@ -166,9 +166,10 @@ databricks warehouses list
 # <warehouse-id>  Serverless Starter Warehouse
 ```
 
-**Why:** the `ingestion` bundle generates its jobs in Python by reading a metadata table at deploy time, and
-it runs that query on a SQL warehouse. The bundle finds the warehouse **by name** with a variable lookup
-(see 7.3), so its ID does not have to be exported, stored in a `.env` file or kept as a GitHub secret.
+**Why:** the first version of the `ingestion` bundle generated its jobs by reading a metadata table at deploy
+time, and it ran that query on a SQL warehouse, found **by name** with a variable lookup so its ID did not
+have to be exported, stored in a `.env` file or kept as a GitHub secret. Since the bundle reads a file
+instead (section 7.3), no bundle needs the warehouse; it is only used from the SQL editor.
 
 ### 4.4 Create the CI identities (one service principal per environment)
 
@@ -302,6 +303,7 @@ been approved yet, so it never gets prd credentials.
 | 1 | A use-case bundle must not create catalogs or schemas (that is the platform's job). |
 | 2 | Every job name starts with the bundle name followed by `-` and is lowercase. |
 | 3 | Every job has `email_notifications.on_failure`. |
+| 4 | Every job has an `owner` tag (`tags.owner`), for support and cost reports. Added during the rehearsal to show a new rule reaching every repository (section 9). |
 
 **Why:** the rules run on the **final** configuration, with variables resolved and Python-generated
 resources included. They therefore see exactly what will be deployed, including jobs generated from
@@ -604,13 +606,14 @@ GRANT USE SCHEMA, CREATE TABLE, SELECT, MODIFY ON SCHEMA demo_dabs.ingestion_prd
 | --- | --- |
 | `USE CATALOG` on `demo_dabs` | Required to reach anything inside the catalog. |
 | Write access on its own environment's schemas | The jobs create and overwrite their tables there. Each service principal can write **only** to its own environment. |
-| Read access on `metadata` | The `ingestion` bundle reads `ingestion_datasets` at deploy time to generate its jobs. |
+| Read access on `metadata` | The first version of `ingestion` read `ingestion_datasets` at deploy time. No longer needed since the bundle reads `datasets.yml` (section 7.3). |
 | `USE SCHEMA` on `landing` and `READ VOLUME` on `landing.files` | The ingestion jobs read the CSV files from the landing volume. |
 
 Neither service principal has access to the `dev` schemas: `dev` belongs to developers.
 
-Both also need permission to use the SQL warehouse (SQL Warehouses → Serverless Starter Warehouse →
-Permissions → **Can use**). This was set through the Permissions API:
+Both also got permission to use the SQL warehouse (SQL Warehouses → Serverless Starter Warehouse →
+Permissions → **Can use**), for the metadata query of the first version of `ingestion`. It was set through
+the Permissions API:
 
 ```bash
 databricks api patch /api/2.0/permissions/warehouses/<warehouse-id> --json '{
@@ -665,8 +668,9 @@ dabs-use-cases-test/
 │   ├── src/main.py                       # thin notebook
 │   ├── src/transformations.py            # pure, tested logic
 │   └── tests/                            # conftest.py and test_transformations.py
-├── ingestion/                            # bundle: jobs generated from the metadata table
+├── ingestion/                            # bundle: jobs generated from a datasets file
 │   ├── databricks.yml
+│   ├── datasets.yml                      # the team's datasets, one entry each
 │   ├── requirements-bundle.txt
 │   ├── resources/__init__.py
 │   └── src/ingest_dataset.py
@@ -723,49 +727,86 @@ databricks bundle validate -t qa --output json | python3 <path-to>/dabs-platform
 # Platform rules: OK
 ```
 
-### 7.3 `ingestion`: jobs generated in Python from a metadata table
+### 7.3 `ingestion`: jobs generated in Python from a datasets file
 
 **What it solves:** with many similar flows, configuration grows out of control if every dataset has its own
-YAML file. Instead, this bundle reads the table `demo_dabs.metadata.ingestion_datasets` **at deploy time**
-and generates one job per active row. Adding a dataset means inserting a row; nobody edits YAML. With five
-rows or a thousand, the code is the same.
+job in YAML. Instead, the team lists its datasets in one file, `ingestion/datasets.yml`, one short entry per
+dataset, and the bundle generates one job per enabled entry. With five datasets or a thousand, the code is
+the same.
 
-**How it works:** on `validate`, `plan` and `deploy`, the CLI calls the function `load_resources` in
-`resources/__init__.py`. That function queries the table through the SQL warehouse (with the Databricks SDK)
-and returns the jobs, which are then deployed exactly as if they had been written in YAML.
+**Who owns what:**
 
-The sample job and notebook created by the template are removed, and these files are added:
+| Who | Defines | Where |
+| --- | --- | --- |
+| Platform | Catalog, schemas per environment, the landing volume `landing.files`, the rules | `platform-bundle/`, `ci/check_rules.py` |
+| The team | Its datasets: name, source folder, format, reader options, write mode, schedule | `ingestion/datasets.yml`, owned by the team in CODEOWNERS |
+| The bundle code | How an entry becomes a job, and the checks on the file | `ingestion/resources/__init__.py` |
+
+The team never writes volume paths or schema names: an entry names a folder in the landing volume, and the
+catalog and schema come from the target. Adding a dataset is a PR in the team's own folder, reviewed by the
+team, so the platform team is not involved.
+
+**How it works:** on `validate`, `plan` and `deploy`, the CLI calls `load_resources` in `resources/__init__.py`.
+It reads `datasets.yml`, checks it, and returns one job per enabled entry, which is then deployed exactly as
+if it had been written in YAML.
+
+`datasets.yml` (the header comment in the file documents every field):
+
+```yaml
+alerts:
+  on_failure: [data-team@example.com]
+
+datasets:
+  - name: customer
+    source: customer            # folder in /Volumes/<catalog>/landing/files
+  - name: orders
+    source: orders
+    schedule: "0 0 6 * * ?"     # Quartz cron, Europe/Madrid; paused outside prd
+  # ...
+```
+
+| Field | Required | Default | Effect |
+| --- | --- | --- | --- |
+| `owner` (file) | Platform rule 4 | — | `tags.owner` on every job |
+| `alerts.on_failure` (file) | Yes | — | Failure emails on every job (platform rule 3) |
+| `name` | Yes | — | Job `ingestion-<name>-<target>`, table `raw_<name>` |
+| `source` | Yes | — | Folder in the landing volume |
+| `format` | No | `csv` | `csv`, `json` or `parquet` |
+| `options` | No | `header` and `inferSchema` for csv | Spark reader options |
+| `mode` | No | `overwrite` | `overwrite` or `append` |
+| `schedule` | No | on demand | Quartz cron; the schedule is active only in prd |
+| `enabled` | No | `true` | `false` removes the job and keeps the entry |
+
+**The file is checked** before any job is generated: unknown fields (a typo such as `sorce`), invalid or
+duplicated names, a missing `source` or `alerts`, and unknown formats or modes. Any mistake fails
+`validate` in the PR with every error listed:
+
+```
+Error: Failed to load resources
+ValueError: datasets.yml is not valid:
+  datasets[1] (nation): unknown field 'sorce'
+  datasets[1] (nation): source is required
+```
+
+Files of the bundle:
 
 | File | What it does |
 | --- | --- |
-| `requirements-bundle.txt` | Python packages the CLI needs to run the bundle's code: `databricks-bundles` (same version as the CLI, `1.22.1`) and `databricks-sdk`. |
-| `databricks.yml` | The template's file, plus a `warehouse_id` variable and a `python:` block (below). |
-| `resources/__init__.py` | `read_metadata` queries the table; `create_job` is the job template for one dataset; `load_resources` adds one job per row. |
-| `src/ingest_dataset.py` | The single notebook every job uses: reads the dataset's CSV from the landing volume and saves it as `raw_<dataset>`. |
-
-Additions to `databricks.yml`:
+| `datasets.yml` | The team's list of datasets. |
+| `requirements-bundle.txt` | Python packages the CLI needs to run the bundle's code: `databricks-bundles` (same version as the CLI, `1.22.1`) and `PyYAML`. |
+| `databricks.yml` | The template's file, plus a `python:` block (below). |
+| `resources/__init__.py` | `read_datasets` reads and checks the file; `create_job` is the job template for one dataset; `load_resources` adds one job per enabled entry. |
+| `src/ingest_dataset.py` | The single notebook every job uses: reads the dataset from the landing volume with its format and options, and writes `raw_<dataset>` in the dataset's mode. |
 
 ```yaml
-variables:
-  warehouse_id:
-    description: SQL warehouse used to read the metadata table at deploy time
-    lookup:
-      warehouse: Serverless Starter Warehouse
-
 python:
   venv_path: .venv
   resources:
     - 'resources:load_resources'
 ```
 
-- The warehouse is found **by name**, and the Python code reads the resolved value with
-  `bundle.resolve_variable(Variables.warehouse_id)`. No environment variable, `.env` file or GitHub secret is
-  needed for it, and it works the same for every developer and in CI.
-- The Python code authenticates with `WorkspaceClient()`, which reuses the CLI's authentication: the
-  developer's profile locally, the service principal in CI. Nothing has to be exported.
-
-Every generated job complies with the platform rules: its name is `ingestion-<dataset>-<target>` and it has
-`email_notifications.on_failure`.
+Every generated job complies with the platform rules: its name is `ingestion-<dataset>-<target>`, and it
+gets `email_notifications.on_failure` and `tags.owner` from the file.
 
 Test it in your personal dev copy, from `ingestion/`. The virtual environment is created once:
 
@@ -782,24 +823,38 @@ databricks bundle run ingest_customer
 SELECT COUNT(*) FROM demo_dabs.ingestion_dev.raw_customer;   -- 5000
 ```
 
-**Adding and removing datasets** (this is shown live in the demo):
+**Adding and removing datasets** (shown live in the demo) is a PR to `qa` that edits `datasets.yml`:
 
-```sql
--- Add a dataset: the next plan proposes a new job, ingest_part
-INSERT INTO demo_dabs.metadata.ingestion_datasets
-VALUES ('part', '/Volumes/demo_dabs/landing/files/part', true);
+- Add an entry for `part` (its CSV files are already in the landing volume): the PR's plan shows
+  `create jobs.ingest_part`.
+- Set `enabled: false` on an entry, or delete it: the plan shows `delete jobs.ingest_<name>`.
 
--- Deactivate a dataset: the next plan proposes deleting ingest_region
-UPDATE demo_dabs.metadata.ingestion_datasets SET active = false WHERE dataset = 'region';
-```
+The change then travels like any other: qa on merge, prd through the promotion and its approval.
 
-Two caveats:
+**Why a file and not a table.** The first version read the table `demo_dabs.metadata.ingestion_datasets` at
+deploy time (created by `platform-setup-demo`, section 5.2). It was replaced during the rehearsal:
 
-- A deployment depends on the table's content **at that moment**, so two deployments of the same commit can
-  produce different jobs. In a real setup the metadata should also be versioned (for example, loaded into the
-  table from a file in Git).
-- The alternative without Python is a single generic job with a `for_each` task that reads the table at run
-  time. It creates fewer objects, but there is no longer one visible job per dataset.
+| | File in the team's folder | Table |
+| --- | --- | --- |
+| Add or remove a dataset | PR in the team's folder, reviewed by the team | An `INSERT`, without review |
+| Visible in the CI plan | Yes | No: the change does not trigger the CI |
+| Reaches prd | Through qa, the promotion and the approval | On the next deployment of any change, even an unrelated hotfix |
+| History and rollback | `git log`, `git revert` | Delta time travel, by hand |
+| Same commit, same jobs | Yes | No: it depends on the table's content at that moment |
+| Who can edit it | People who use Git | Anyone with SQL, or an app or form |
+
+The table is the same for qa and prd, so a dataset added to try something would reach prd with the next
+deployment, without going through qa. A table still fits when the people who register datasets do not use
+Git, or when the source is another system such as a data catalog; then it should be one table per
+environment. The file also removed the SQL warehouse lookup and the `databricks-sdk` dependency.
+
+**Many teams:** each team keeps its own bundle and its own `datasets.yml`, so a thousand pipelines across
+twenty teams are about fifty lines per file. The next step is to move the generator (`read_datasets` and
+`create_job`) into a library owned by the platform and versioned like the CI (section 12), so teams only
+own their file.
+
+The alternative without Python is a single generic job with a `for_each` task over the list of datasets. It
+creates fewer objects, but there is no longer one visible job, schedule and alert per dataset.
 
 ### 7.4 CODEOWNERS
 
@@ -1011,6 +1066,7 @@ gh secret delete DATABRICKS_WAREHOUSE_ID -R cesarpazguzman/dabs-use-cases-test
 | Stale-deployment checks and `concurrency` | An older state can never overwrite a newer one, in qa or in prd. |
 | `validate --strict` and unit tests in CI | Configuration warnings and logic errors stop the PR, not the deployment. |
 | `dev`, `qa` and `prd` as schemas, not workspaces | Free Edition has only one workspace. In a real setup, prd would be a separate workspace. |
+| Ingestion datasets in a file in each team's folder, not in a table | Every change is a reviewed PR, shows in the plan and reaches prd through qa and the approval (section 7.3). |
 | Service principals and the warehouse found by name with variable lookups | No IDs hard-coded, no `.env` files and no extra exports or secrets; the same configuration works for every developer and in CI. |
 | CI versioned by tag (`@v1`) | Platform changes are released on purpose, not on every commit to `main`. |
 | CODEOWNERS with users instead of teams | The repositories belong to a personal GitHub account; teams require an organization. |
@@ -1049,7 +1105,9 @@ gh secret delete DATABRICKS_WAREHOUSE_ID -R cesarpazguzman/dabs-use-cases-test
 12. **Grants as code** in the platform bundle, declaring the service principals' grants too (section 6.2).
 13. **Read-only identity for `plan`:** a service principal that can validate and plan but not deploy, so the qa
     secrets can move into the `qa` environment and only the `qa` branch can use the identity that deploys.
-14. **Version the ingestion metadata** in Git (section 7.3).
+14. **Ingestion generator as a platform library:** move `read_datasets` and `create_job` into a package in this
+    repository, installed by tag from `requirements-bundle.txt`, so each team only owns its `datasets.yml`
+    (section 7.3). Then retire the table `metadata.ingestion_datasets`, its grants and the warehouse `CAN_USE`.
 15. **prd in its own workspace** outside Free Edition.
 
 ### Demo

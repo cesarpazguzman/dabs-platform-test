@@ -2,6 +2,8 @@ resources:
   jobs:
     {{.use_case}}_main:
       name: {{.use_case}}-main-${bundle.target}
+      tags:
+        owner: {{user_name}}
       email_notifications:
         on_failure:
           - {{user_name}}

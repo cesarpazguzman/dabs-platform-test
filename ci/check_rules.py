@@ -17,6 +17,9 @@ for key, job in resources.get("jobs", {}).items():
     # Rule 3: every job sends an email on failure
     if not job.get("email_notifications", {}).get("on_failure"):
         errors.append(f"Job '{key}': missing email_notifications.on_failure")
+    # Rule 4: every job says who owns it, for support and cost reports
+    if not job.get("tags", {}).get("owner"):
+        errors.append(f"Job '{key}': missing tags.owner")
 
 if errors:
     print("\n".join("ERROR: " + e for e in errors))

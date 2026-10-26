@@ -33,7 +33,7 @@ any branch ──laptop──►  dev  (personal copy, the developer's own user)
 
 - **`validate --strict`**: configuration warnings, such as a misspelled field, fail the PR.
 - **Platform rules**: no catalogs or schemas in use-case bundles, job names prefixed with the bundle name,
-  failure notifications on every job.
+  failure notifications and an `owner` tag on every job.
 - **Branch policy**: only `qa` and `hotfix/*` can be merged into `main`, and a promotion from `qa` is blocked
   until any hotfix on `main` has been merged back into `qa`.
 - **Unit tests**: run with a local Spark when the bundle has a `tests/` folder.
