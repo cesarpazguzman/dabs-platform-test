@@ -829,7 +829,8 @@ datasets:
 | `schedule` | No | on demand | Quartz cron; the schedule is active only in prd |
 | `enabled` | No | `true` | `false` removes the job and keeps the entry |
 
-**The file is checked** before any job is generated: unknown fields (a typo such as `sorce`), invalid or
+**The file is checked** before any job is generated: unknown fields (a typo such as `sorce`), repeated keys
+(PyYAML would silently keep the last one; it happened in the rehearsal when two PRs added `owner`), invalid or
 duplicated names, a missing `source` or `alerts`, and unknown formats or modes. Any mistake fails
 `validate` in the PR with every error listed:
 
