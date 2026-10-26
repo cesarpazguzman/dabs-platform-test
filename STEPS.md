@@ -1087,8 +1087,15 @@ What was run end to end, what was found, and what was changed as a result.
 | Back-merge merged with **squash** | The promotion PR kept failing in the back-merge check | Expected (squash records no ancestry), but easy to do by mistake from the web UI. Repeated with a merge commit, which changed no files, so the CI did not run and it was merged with the admin bypass (section 8.3). |
 | Promotion PR after the merge-commit back-merge | "qa contains everything on main"; prd deployed the feature after approval | — |
 
-Still to rehearse: the governance PRs (a failing rule, a sensitive file, a new platform rule) and adding and
-removing ingestion datasets.
+| Job name without the bundle prefix (D1) | `validate --strict` passed; Platform rules failed: "name must start with 'sales-'" | — |
+| New platform rule 4, `tags.owner` (D3) | After moving `v1`, every PR of `sales` and `ingestion` failed in Platform rules until each team added the tag in its own files | — |
+| `ingestion` from a datasets file, adding `part` and disabling `region` (E) | Without `owner` the PR failed on rule 4; with it, the plan showed `create jobs.ingest_part` and `delete jobs.ingest_region` with no code change | The rehearsal PR was closed so `part` can be added live. Two later PRs both added `owner`, leaving the key twice in `datasets.yml`: PyYAML silently keeps the last one, so the loader now rejects repeated keys. |
+| New use case from the template (D4) | `bundle init` created it with `tags.owner`: it complies with rule 4 from the start, while existing use cases needed a PR | — |
+| Three chained `sales` jobs | In dev and qa, `monthly_sales` and `top_customers` started at the same second after `daily_sales` | — |
+| Table-update trigger (dev, unpaused with `--var trigger_pause=UNPAUSED`) | The first update of `raw_orders`, a few minutes after enabling the trigger, did not start a run. The second one did: the ingestion finished at 10:16:15 and `sales-main` started at 10:18:43 (trigger `TABLE`), then ran the two jobs in parallel | Allow a few minutes between enabling the trigger and the first update, and about 2–3 minutes from the update to the run (60 s of `wait_after_last_change_seconds` plus the trigger's polling). |
+
+Not rehearsed: the sensitive-file PR (D2), because it needs a second GitHub account as the platform owner in
+CODEOWNERS. The promotion of the chained `sales` jobs to prd is left as an open PR for the live demo.
 
 ## 10. Clean-up
 
