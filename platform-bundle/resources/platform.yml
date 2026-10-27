@@ -1,6 +1,7 @@
+# Shared objects owned by the platform. Use-case bundles cannot create schemas (platform rule 1):
+# they refer to these by name, through their `schema` variable.
 resources:
   schemas:
-    metadata:      { catalog_name: "${var.catalog}", name: metadata }
     landing:       { catalog_name: "${var.catalog}", name: landing }
     sales_dev:     { catalog_name: "${var.catalog}", name: sales_dev }
     sales_qa:      { catalog_name: "${var.catalog}", name: sales_qa }
@@ -8,6 +9,9 @@ resources:
     ingestion_dev: { catalog_name: "${var.catalog}", name: ingestion_dev }
     ingestion_qa:  { catalog_name: "${var.catalog}", name: ingestion_qa }
     ingestion_prd: { catalog_name: "${var.catalog}", name: ingestion_prd }
+    dqx_test_dev:  { catalog_name: "${var.catalog}", name: dqx_test_dev }
+    dqx_test_qa:   { catalog_name: "${var.catalog}", name: dqx_test_qa }
+    dqx_test_prd:  { catalog_name: "${var.catalog}", name: dqx_test_prd }
 
   volumes:
     landing_files:
@@ -16,12 +20,20 @@ resources:
       name: files
       volume_type: MANAGED
 
-  jobs:
-    setup_demo:
-      name: platform-setup-demo
-      tasks:
-        - task_key: setup
-          notebook_task:
-            notebook_path: ../src/setup_demo.py
-            base_parameters:
-              catalog: ${var.catalog}
+    # dqx_test: rule files, profiler output and streaming checkpoints, one volume per environment
+    # (each one is reached as /Volumes/<catalog>/dqx_test_<env>/files)
+    dqx_test_dev_files:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.dqx_test_dev.name}
+      name: files
+      volume_type: MANAGED
+    dqx_test_qa_files:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.dqx_test_qa.name}
+      name: files
+      volume_type: MANAGED
+    dqx_test_prd_files:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.dqx_test_prd.name}
+      name: files
+      volume_type: MANAGED

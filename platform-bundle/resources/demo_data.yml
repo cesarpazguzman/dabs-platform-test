@@ -1,0 +1,12 @@
+# Demo only, not part of the platform: simulates source systems dropping files into the landing volume.
+# Run it by hand (databricks bundle run setup_demo) to load or reload the sample files.
+resources:
+  jobs:
+    setup_demo:
+      name: platform-setup-demo
+      tasks:
+        - task_key: setup
+          notebook_task:
+            notebook_path: ../src/setup_demo.py
+            base_parameters:
+              catalog: ${var.catalog}
