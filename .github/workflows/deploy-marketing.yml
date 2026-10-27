@@ -1,0 +1,14 @@
+name: deploy-marketing
+on:
+  pull_request:
+    branches: [qa, main]
+    paths: ["marketing/**"]
+  push:
+    branches: [qa, main]   # qa -> qa target, main -> prd target
+    paths: ["marketing/**"]
+jobs:
+  ci:
+    uses: cesarpazguzman/dabs-platform-test/.github/workflows/bundle-ci.yml@v1
+    with:
+      bundle_path: marketing
+    secrets: inherit

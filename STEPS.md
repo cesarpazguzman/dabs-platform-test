@@ -29,7 +29,6 @@ GitHub: cesarpazguzman
             │                 branch main → target prd (sp-dabs-prd, after approval)
             ▼
 Databricks Free Edition workspace · catalog demo_dabs
-├── metadata.ingestion_datasets     (table that drove the ingestion bundle; replaced by a file, 7.3)
 ├── landing.files                   (volume with sample CSV files)
 └── <use_case>_dev · <use_case>_qa · <use_case>_prd   (one schema per use case and environment)
 ```
@@ -228,7 +227,8 @@ dabs-platform-test/
 │       └── .github/workflows/deploy-{{.use_case}}.yml.tmpl
 ├── platform-bundle/                      # platform bundle
 │   ├── databricks.yml
-│   ├── resources/platform.yml
+│   ├── resources/platform.yml            # platform: schemas and landing volume
+│   ├── resources/demo_data.yml           # demo only: job that writes the sample files
 │   └── src/setup_demo.py
 ├── .gitignore
 ├── README.md                             # short overview
@@ -240,11 +240,27 @@ dabs-platform-test/
 | File | What it does | Why |
 | --- | --- | --- |
 | `databricks.yml` | Declares the bundle `platform`, the `catalog` variable (default `demo_dabs`) and a single target `demo` pointing at the workspace. | Entry point of the bundle. The catalog is a variable so the same code could target another catalog. |
-| `resources/platform.yml` | Declares eight schemas (`metadata`, `landing`, and `sales_*` / `ingestion_*` for `dev`, `qa` and `prd`), the managed volume `landing.files` and the job `platform-setup-demo`. | Shared objects are created **as code**, before any use case exists. This answers "who creates the catalog and the schemas": the platform. In a real setup this could be Terraform; a bundle shows it is also possible. |
-| `src/setup_demo.py` | Notebook that writes six `samples.tpch` tables as CSV files into the landing volume and creates the table `metadata.ingestion_datasets` with one row per dataset to ingest. | Provides realistic input files and the metadata table for the `ingestion` use case. The `part` dataset is written as CSV but **left out of the metadata table on purpose**, so it can be added live during the demo. |
+| `resources/platform.yml` | Declares seven schemas (`landing`, and `sales_*` / `ingestion_*` for `dev`, `qa` and `prd`) and the managed volume `landing.files`. This is the platform part. | Shared objects are created **as code**, before any use case exists. This answers "who creates the catalog and the schemas": the platform. In a real setup this could be Terraform; a bundle shows it is also possible. |
+| `resources/demo_data.yml` | Declares the job `platform-setup-demo`, run by hand. | **Demo only**, kept apart from the platform objects: it stands in for the source systems that would drop files into the landing volume. |
+| `src/setup_demo.py` | Notebook that writes six `samples.tpch` tables as CSV files into the landing volume. | Provides realistic input files for the `ingestion` use case. The `part` files are written but **left out of `datasets.yml` on purpose**, so the dataset can be added live during the demo. |
 
 The platform bundle is deployed by hand and is **not** checked by the platform rules, because creating
 schemas is exactly what it is meant to do.
+
+**How the use cases find these objects.** No other bundle references `resources.schemas.*`: a `${resources...}`
+reference only resolves inside its own bundle (here, the volume uses `${resources.schemas.landing.name}`).
+Declaring a schema under `resources.schemas` means this bundle **creates and manages** it: it is created on
+deploy, and deleted, with its tables, if it is removed from the file. The use cases connect to it **by name**,
+a naming contract resolved by Unity Catalog when the job runs:
+
+| Platform object | Used by | How |
+| --- | --- | --- |
+| `sales_dev/qa/prd` | `sales` jobs write their tables there | variable `schema` per target in `sales/databricks.yml` |
+| `ingestion_dev/qa/prd` | `ingestion` jobs write `raw_*`; `sales` reads `raw_orders` and its trigger watches it | variables `schema` and `source_schema` |
+| `landing.files` | `ingestion` jobs read the files | `LANDING = /Volumes/${var.catalog}/landing/files` in `ingestion/resources/__init__.py` |
+
+If an object is missing, the use case still validates and deploys, and its job fails at run time. A new use
+case therefore starts with a platform PR that adds its three schemas here.
 
 ### 5.3 Reusable CI workflow (`.github/workflows/bundle-ci.yml`)
 
@@ -395,22 +411,19 @@ databricks bundle run setup_demo  # runs the job: TERMINATED SUCCESS
 
 The bundle was first deployed with the dev and qa schemas (8 resources: 6 schemas, 1 volume, 1 job). When
 the prd environment was added, the same `plan` and `deploy` created only the two new schemas
-(`sales_prd`, `ingestion_prd`) and left everything else unchanged.
+(`sales_prd`, `ingestion_prd`) and left everything else unchanged. Later the schema `metadata` was removed
+from the file and the job moved to `demo_data.yml`: the plan showed `delete schemas.metadata` and nothing
+else, since the job keeps its key (`setup_demo`).
 
 Verification:
 
 ```bash
 databricks schemas list demo_dabs
-# default, information_schema, ingestion_dev, ingestion_prd, ingestion_qa, landing, metadata,
+# default, information_schema, ingestion_dev, ingestion_prd, ingestion_qa, landing,
 # sales_dev, sales_prd, sales_qa
 
 databricks fs ls dbfs:/Volumes/demo_dabs/landing/files/
 # customer, nation, orders, part, region, supplier
-```
-
-```sql
-SELECT * FROM demo_dabs.metadata.ingestion_datasets ORDER BY dataset;
--- 5 rows: customer, nation, orders, region, supplier (all active; part is left out on purpose)
 ```
 
 ### 5.8 Test the template
@@ -606,7 +619,7 @@ GRANT USE SCHEMA, CREATE TABLE, SELECT, MODIFY ON SCHEMA demo_dabs.ingestion_prd
 | --- | --- |
 | `USE CATALOG` on `demo_dabs` | Required to reach anything inside the catalog. |
 | Write access on its own environment's schemas | The jobs create and overwrite their tables there. Each service principal can write **only** to its own environment. |
-| Read access on `metadata` | The first version of `ingestion` read `ingestion_datasets` at deploy time. No longer needed since the bundle reads `datasets.yml` (section 7.3). |
+| Read access on `metadata` | The first version of `ingestion` read `ingestion_datasets` at deploy time. No longer needed since the bundle reads `datasets.yml` (section 7.3); these grants went away with the schema. |
 | `USE SCHEMA` on `landing` and `READ VOLUME` on `landing.files` | The ingestion jobs read the CSV files from the landing volume. |
 
 Neither service principal has access to the `dev` schemas: `dev` belongs to developers.
@@ -1168,7 +1181,7 @@ gh secret delete DATABRICKS_WAREHOUSE_ID -R cesarpazguzman/dabs-use-cases-test
     secrets can move into the `qa` environment and only the `qa` branch can use the identity that deploys.
 14. **Ingestion generator as a platform library:** move `read_datasets` and `create_job` into a package in this
     repository, installed by tag from `requirements-bundle.txt`, so each team only owns its `datasets.yml`
-    (section 7.3). Then retire the table `metadata.ingestion_datasets`, its grants and the warehouse `CAN_USE`.
+    (section 7.3). The schema `metadata` is already gone; the warehouse `CAN_USE` (section 6.1) can be revoked too.
 15. **prd in its own workspace** outside Free Edition.
 
 ### Demo
